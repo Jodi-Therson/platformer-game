@@ -37,11 +37,11 @@ LEVEL_PALETTE_2 = (189, 200, 230)
 LEVEL_PALETTE_3 = (154, 152, 193)
 LEVEL_PALETTE_4 = (106, 103, 159)
 LEVEL_PALETTE_5 = (46, 47, 82)
-LEVEL_COLOR_1 = (255, 132, 124)
-LEVEL_COLOR_2 = (255, 220, 123)
-LEVEL_COLOR_3 = (147, 223, 118)
-LEVEL_COLOR_4 = (118, 185, 223)
-LEVEL_COLOR_5 = (180, 147, 223)
+LEVEL_COLOR_1 = (255, 209, 220)
+LEVEL_COLOR_2 = (174, 198, 207)
+LEVEL_COLOR_3 = (176, 224, 168)
+LEVEL_COLOR_4 = (230, 230, 250)
+LEVEL_COLOR_5 = (255, 218, 185)
 
 # Expanded Character Editor Palette
 CHAR_COLORS = {
@@ -50,7 +50,16 @@ CHAR_COLORS = {
     11: (128, 128, 128), 12: (0, 0, 0), 13: (139, 69, 19), 14: (244, 164, 96), 15: (255, 215, 0)
 }
 
-LEVEL_TILE_COLORS = { 1: LEVEL_PALETTE_2, 2: LEVEL_PALETTE_3, 3: LEVEL_COLOR_1, 4: LEVEL_COLOR_2, 5: LEVEL_COLOR_3, 6: LEVEL_COLOR_4, 7: LEVEL_COLOR_5 }
+LEVEL_TILE_COLORS = {1: LEVEL_COLOR_1, 
+                     2: LEVEL_COLOR_2, 
+                     3: LEVEL_COLOR_3, 
+                     4: LEVEL_COLOR_4, 
+                     5: LEVEL_COLOR_5,
+                     6: (255, 241, 159),
+                     7: (204, 204, 255),
+                     8: (182, 232, 208),
+                     9: (240, 128, 128),
+                     10:(224, 176, 255)}
 
 # --- Fonts ---
 title_font = pygame.font.SysFont('Arial', 60, bold=True)
@@ -64,7 +73,7 @@ clock = pygame.time.Clock()
 
 # --- Game State ---
 game_mode = 'main_menu' # 'main_menu', 'level_editor', 'char_editor'
-current_level = 1
+current_level = 0
 
 # --- Level Editor State ---
 level_world_data = []
@@ -73,6 +82,11 @@ level_num_cols = (1280 * 2) // GRID_SIZE
 camera = pygame.Rect(0, 0, 1280, SCREEN_HEIGHT)
 camera_speed = 15
 level_selected_tile = 1
+lvl_rgb_input_active = False
+lvl_rgb_input_text = ""
+lvl_custom_color_preview = BLACK
+lvl_feedback_msg = ""
+lvl_feedback_timer = 0
 
 # --- Character Editor State ---
 char_grid_data = [[0] * CHAR_GRID_DIM for _ in range(CHAR_GRID_DIM)]
@@ -84,15 +98,22 @@ char_feedback_timer = 0
 
 
 # --- UI Elements ---
+def generate_level_color_buttons():
+    return [pygame.Rect(1280 + 20 + ((i % 4) * (50 + 15)), 80 + 20 + ((i // 4) * (50 + 15)), 50, 50) for i in range(len(LEVEL_TILE_COLORS))]
+
 # Main Menu Buttons
 level_editor_button = pygame.Rect((SCREEN_WIDTH / 2) - 200, 300, 400, 80)
 char_editor_button = pygame.Rect((SCREEN_WIDTH / 2) - 200, 400, 400, 80)
 
 # Level Editor Buttons
-lvl_reset_button = pygame.Rect(1280 + 20, SCREEN_HEIGHT - 70, UI_WIDTH - 40, 50)
-lvl_save_button = pygame.Rect(lvl_reset_button.left, lvl_reset_button.top - 60, lvl_reset_button.width, 50)
-lvl_menu_button = pygame.Rect(lvl_save_button.left, lvl_save_button.top - 60, lvl_save_button.width, 50)
-lvl_color_buttons = [pygame.Rect(1280 + 20 + ((i % 4) * (50 + 15)), 80 + 20 + ((i // 4) * (50 + 15)), 50, 50) for i in range(len(LEVEL_TILE_COLORS))]
+lvl_color_buttons = generate_level_color_buttons()
+lvl_menu_button = pygame.Rect(1280 + 20, SCREEN_HEIGHT - 70, UI_WIDTH - 40, 50)
+lvl_save_button = pygame.Rect(lvl_menu_button.left, lvl_menu_button.top - 60, lvl_menu_button.width, 50)
+lvl_reset_button = pygame.Rect(lvl_save_button.left, lvl_save_button.top - 60, lvl_save_button.width, 50)
+lvl_rgb_input_rect = pygame.Rect(lvl_reset_button.left, lvl_reset_button.top - 60, 170, 50)
+lvl_rgb_preview_rect = pygame.Rect(lvl_rgb_input_rect.right + 10, lvl_rgb_input_rect.top, 50, 50)
+lvl_add_color_button = pygame.Rect(lvl_rgb_preview_rect.right + 10, lvl_rgb_input_rect.top, 50, 50)
+
 
 # Character Editor Buttons
 char_menu_button = pygame.Rect(1280 + 20, SCREEN_HEIGHT - 70, UI_WIDTH - 40, 50)
@@ -131,12 +152,13 @@ def draw_main_menu():
     screen.blit(char_btn_text, char_btn_text.get_rect(center=char_editor_button.center))
 
 def draw_level_editor():
+    global lvl_feedback_msg, lvl_feedback_timer
     # Draw World
     screen.fill(LEVEL_PALETTE_4)
     for y, row in enumerate(level_world_data):
         for x, tile in enumerate(row):
             if tile > 0:
-                pygame.draw.rect(screen, LEVEL_TILE_COLORS.get(tile), pygame.Rect(x * GRID_SIZE - camera.x, y * GRID_SIZE - camera.y, GRID_SIZE, GRID_SIZE))
+                pygame.draw.rect(screen, LEVEL_TILE_COLORS.get(tile, BLACK), pygame.Rect(x * GRID_SIZE - camera.x, y * GRID_SIZE - camera.y, GRID_SIZE, GRID_SIZE))
     # Draw Grid
     start_x, start_y = (camera.x // GRID_SIZE) * GRID_SIZE, (camera.y // GRID_SIZE) * GRID_SIZE
     for x in range(int(start_x), int(camera.x) + 1280 + GRID_SIZE, GRID_SIZE):
@@ -148,14 +170,29 @@ def draw_level_editor():
     pygame.draw.rect(screen, LEVEL_PALETTE_5, (1280, 0, UI_WIDTH, SCREEN_HEIGHT))
     level_text = ui_font.render(f'LEVEL: {current_level}', True, WHITE)
     screen.blit(level_text, level_text.get_rect(center=(1280 + UI_WIDTH / 2, 40)))
-    # UI Buttons
+    # Preset Color Buttons
     for i, btn in enumerate(lvl_color_buttons):
         pygame.draw.rect(screen, LEVEL_TILE_COLORS[i + 1], btn)
         if level_selected_tile == i + 1: pygame.draw.rect(screen, WHITE, btn, 3)
     
+    # Custom Color UI
+    pygame.draw.rect(screen, WHITE, lvl_rgb_input_rect)
+    if lvl_rgb_input_active: pygame.draw.rect(screen, LEVEL_COLOR_1, lvl_rgb_input_rect, 3)
+    rgb_text = small_font.render(lvl_rgb_input_text, True, BLACK)
+    screen.blit(rgb_text, (lvl_rgb_input_rect.x + 10, lvl_rgb_input_rect.y + 15))
+
+    pygame.draw.rect(screen, lvl_custom_color_preview, lvl_rgb_preview_rect)
+    pygame.draw.rect(screen, LEVEL_PALETTE_1, lvl_add_color_button); screen.blit(button_font.render('+', True, BLACK), button_font.render('+', True, BLACK).get_rect(center=lvl_add_color_button.center))
+    
+    # Action Buttons
     pygame.draw.rect(screen, LEVEL_PALETTE_1, lvl_menu_button); screen.blit(button_font.render('MENU', True, BLACK), button_font.render('MENU', True, BLACK).get_rect(center=lvl_menu_button.center))
     pygame.draw.rect(screen, LEVEL_PALETTE_1, lvl_save_button); screen.blit(button_font.render('SAVE', True, BLACK), button_font.render('SAVE', True, BLACK).get_rect(center=lvl_save_button.center))
     pygame.draw.rect(screen, LEVEL_PALETTE_1, lvl_reset_button); screen.blit(button_font.render('RESET', True, BLACK), button_font.render('RESET', True, BLACK).get_rect(center=lvl_reset_button.center))
+
+    if lvl_feedback_timer > 0:
+        feedback_text = small_font.render(lvl_feedback_msg, True, WHITE)
+        screen.blit(feedback_text, feedback_text.get_rect(center=(lvl_rgb_input_rect.centerx, lvl_rgb_input_rect.top - 20)))
+        lvl_feedback_timer -= 1
 
 
 def draw_character_editor():
@@ -204,29 +241,29 @@ def draw_character_editor():
 # --- Main Loop ---
 run = True
 is_drawing, is_erasing = False, False
-load_level_data(1) # Initial load
+load_level_data(0) # Initial load
 
 while run:
     # --- Event Handling ---
     for event in pygame.event.get():
         if event.type == pygame.QUIT: run = False
         
-        # --- SHARED KEYDOWN ---
         if event.type == pygame.KEYDOWN:
+            # Level Editor Key Events
             if game_mode == 'level_editor':
                 if event.key == pygame.K_RSHIFT: load_level_data(current_level + 1)
                 elif event.key == pygame.K_LSHIFT and current_level > 1: load_level_data(current_level - 1)
+                elif lvl_rgb_input_active:
+                    if event.key == pygame.K_BACKSPACE: lvl_rgb_input_text = lvl_rgb_input_text[:-1]
+                    else: lvl_rgb_input_text += event.unicode
+            # Character Editor Key Events
             elif game_mode == 'char_editor' and char_input_active:
-                if event.key == pygame.K_BACKSPACE:
-                    char_filename = char_filename[:-1]
-                else:
-                    char_filename += event.unicode
+                if event.key == pygame.K_BACKSPACE: char_filename = char_filename[:-1]
+                else: char_filename += event.unicode
         
-        # --- MOUSEUP ---
         if event.type == pygame.MOUSEBUTTONUP:
             is_drawing, is_erasing = False, False
             
-        # --- MOUSEDOWN ---
         if event.type == pygame.MOUSEBUTTONDOWN:
             pos = event.pos
             # --- Main Menu Logic ---
@@ -236,12 +273,29 @@ while run:
             
             # --- Level Editor Logic ---
             elif game_mode == 'level_editor':
+                lvl_rgb_input_active = False # Deactivate on any click
                 if pos[0] >= 1280: # UI click
-                    if lvl_menu_button.collidepoint(pos): game_mode = 'main_menu'
+                    if lvl_rgb_input_rect.collidepoint(pos):
+                        lvl_rgb_input_active = True
+                    elif lvl_menu_button.collidepoint(pos): game_mode = 'main_menu'
                     elif lvl_save_button.collidepoint(pos):
                         level_file_path = os.path.join(LEVELS_DIR, f'level_{current_level}.json')
                         with open(level_file_path, 'w') as f: json.dump(level_world_data, f)
                     elif lvl_reset_button.collidepoint(pos): level_world_data = [[0] * level_num_cols for _ in range(level_num_rows)]
+                    elif lvl_add_color_button.collidepoint(pos):
+                        try:
+                            new_color = tuple(map(int, lvl_rgb_input_text.split(',')))
+                            if len(new_color) == 3 and all(0 <= c <= 255 for c in new_color):
+                                next_id = max(LEVEL_TILE_COLORS.keys()) + 1
+                                LEVEL_TILE_COLORS[next_id] = new_color
+                                lvl_color_buttons = generate_level_color_buttons() # Regenerate buttons
+                                lvl_rgb_input_text = ""
+                                lvl_feedback_msg = "Color added!"
+                            else:
+                                raise ValueError
+                        except (ValueError, TypeError):
+                             lvl_feedback_msg = "Invalid RGB format!"
+                        lvl_feedback_timer = FPS * 2
                     else:
                         for i, btn in enumerate(lvl_color_buttons):
                             if btn.collidepoint(pos): level_selected_tile = i + 1
@@ -262,13 +316,11 @@ while run:
                             sprite_surface = pygame.Surface((CHAR_GRID_DIM, CHAR_GRID_DIM), pygame.SRCALPHA)
                             for r, row in enumerate(char_grid_data):
                                 for c, val in enumerate(row):
-                                    if val > 0:
-                                        sprite_surface.set_at((c, r), CHAR_COLORS.get(val))
-                            
+                                    if val > 0: sprite_surface.set_at((c, r), CHAR_COLORS.get(val))
                             file_path = os.path.join(CHARACTERS_DIR, f'{char_filename}.png')
                             pygame.image.save(sprite_surface, file_path)
                             char_feedback_msg = f"Saved as {file_path}"
-                            char_feedback_timer = FPS * 3 # Show message for 3 seconds
+                            char_feedback_timer = FPS * 3
                             char_filename = ""
                         else:
                             char_feedback_msg = "Enter filename!"
@@ -283,21 +335,28 @@ while run:
                         col = int((pos[0] - canvas_x) // CHAR_GRID_CELL_SIZE)
                         row = int((pos[1] - canvas_y) // CHAR_GRID_CELL_SIZE)
                         if event.button == 1:
-                            is_drawing = True
-                            char_grid_data[row][col] = char_selected_color
+                            is_drawing = True; char_grid_data[row][col] = char_selected_color
                         elif event.button == 3:
-                            is_erasing = True
-                            char_grid_data[row][col] = 0
+                            is_erasing = True; char_grid_data[row][col] = 0
     
-    # --- Continuous Drawing/Erasing Logic on Drag ---
-    if game_mode == 'level_editor' and (is_drawing or is_erasing):
-        pos = pygame.mouse.get_pos()
-        if pos[0] < 1280:
-            world_x, world_y = pos[0] + camera.x, pos[1] + camera.y
-            col, row = world_x // GRID_SIZE, world_y // GRID_SIZE
-            if 0 <= row < level_num_rows and 0 <= col < level_num_cols:
-                level_world_data[row][col] = level_selected_tile if is_drawing else 0
-    
+    # --- Continuous Logic ---
+    # Level Editor
+    if game_mode == 'level_editor':
+        if is_drawing or is_erasing:
+            pos = pygame.mouse.get_pos()
+            if pos[0] < 1280:
+                world_x, world_y = pos[0] + camera.x, pos[1] + camera.y
+                col, row = world_x // GRID_SIZE, world_y // GRID_SIZE
+                if 0 <= row < level_num_rows and 0 <= col < level_num_cols:
+                    level_world_data[row][col] = level_selected_tile if is_drawing else 0
+        try: # Update RGB preview
+            color = tuple(map(int, lvl_rgb_input_text.split(',')))
+            if len(color) == 3 and all(0 <= c <= 255 for c in color):
+                lvl_custom_color_preview = color
+            else: lvl_custom_color_preview = BLACK
+        except: lvl_custom_color_preview = BLACK
+
+    # Character Editor
     elif game_mode == 'char_editor' and (is_drawing or is_erasing):
         pos = pygame.mouse.get_pos()
         canvas_size = CHAR_GRID_DIM * CHAR_GRID_CELL_SIZE
@@ -308,7 +367,7 @@ while run:
             if 0 <= row < CHAR_GRID_DIM and 0 <= col < CHAR_GRID_DIM:
                 char_grid_data[row][col] = char_selected_color if is_drawing else 0
 
-    # --- Camera Movement (Level Editor) ---
+    # --- Camera Movement ---
     if game_mode == 'level_editor':
         keys = pygame.key.get_pressed()
         if keys[pygame.K_LCTRL] or keys[pygame.K_RCTRL]:
@@ -316,7 +375,6 @@ while run:
             elif keys[pygame.K_RIGHT]: camera.x += camera_speed
             elif keys[pygame.K_UP]: camera.y -= camera_speed
             elif keys[pygame.K_DOWN]: camera.y += camera_speed
-        # Clamp Camera
         camera.left = max(0, camera.left)
         camera.right = min(1280 * 2, camera.right)
         camera.top = max(0, camera.top)
